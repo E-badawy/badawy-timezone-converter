@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        .box { background: #f0f0f0; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        pre { background: #fff; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Badawy Timezone Converter - API Test</h1>
+    
+    <div class="box">
+        <h2>Test Results:</h2>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        async function runTests() {
+            const results = [];
+            
+            try {
+                // Test 1: Get timezones
+                console.log('Testing /api/timezones...');
+                const tz_response = await fetch('/api/timezones');
+                const tz_data = await tz_response.json();
+                results.push(`✅ GET /api/timezones: ${tz_response.status} - ${tz_data.count} timezones`);
+                results.push(`   Sample: ${tz_data.timezones.slice(0, 3).join(', ')}`);
+                
+                // Test 2: Get current time
+                console.log('Testing /api/current...');
+                const curr_response = await fetch('/api/current', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timezone: 'UTC' })
+                });
+                const curr_data = await curr_response.json();
+                results.push(`✅ POST /api/current: ${curr_response.status} - ${curr_data.formatted}`);
+                
+                // Test 3: Convert timezone
+                console.log('Testing /api/convert...');
+                const conv_response = await fetch('/api/convert', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        datetime: '2026-02-13T12:00:00', 
+                        from_tz: 'UTC', 
+                        to_tz: 'America/New_York' 
+                    })
+                });
+                const conv_data = await conv_response.json();
+                results.push(`✅ POST /api/convert: ${conv_response.status} - Time difference: ${conv_data.time_difference_hours} hours`);
+                
+                // Test 4: Compare timezones
+                console.log('Testing /api/compare...');
+                const cmp_response = await fetch('/api/compare', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timezones: ['UTC', 'America/New_York'] })
+                });
+                const cmp_data = await cmp_response.json();
+                results.push(`✅ POST /api/compare: ${cmp_response.status} - Compared ${cmp_data.comparison.length} timezones`);
+                
+            } catch (error) {
+                results.push(`❌ Error: ${error.message}`);
+            }
+            
+            document.getElementById('results').innerHTML = results
+                .map(r => `<div><code>${r}</code></div>`)
+                .join('');
+        }
+        
+        runTests();
+    </script>
+</body>
+</html>
