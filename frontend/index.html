@@ -328,7 +328,8 @@
             gap: 10px;
         }
 
-        .select-group select {
+        .select-group select,
+        .select-group input {
             flex: 1;
             padding: 12px;
             border: 2px solid #ddd;
@@ -357,6 +358,70 @@
             flex-wrap: wrap;
             gap: 10px;
             min-height: 40px;
+        }
+
+        .tz-chooser {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            max-width: 360px;
+            width: calc(100% - 40px);
+            background: #ffffff;
+            border: 1px solid #e6e6e6;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            display: none;
+            z-index: 1000;
+        }
+
+        .tz-chooser.active {
+            display: block;
+        }
+
+        .tz-chooser-title {
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .tz-chooser select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 1em;
+        }
+
+        .tz-chooser-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .tz-chooser-actions button {
+            flex: 1;
+            padding: 10px 12px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .tz-chooser-actions .tz-chooser-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .tz-chooser-actions .tz-chooser-secondary {
+            background: #f1f1f1;
+            color: #333;
+        }
+
+        .tz-chooser-hint {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #666;
         }
 
         .timezone-tag {
@@ -618,12 +683,12 @@
                 <div class="tz-row">
                     <div class="form-group">
                         <label>From:</label>
-                        <select id="fromTz"></select>
+                        <input id="fromTz" list="tzOptions" placeholder="Type country or timezone">
                     </div>
                     <button type="button" class="swap-btn" onclick="swapTimezones()">⇄</button>
                     <div class="form-group">
                         <label>To:</label>
-                        <select id="toTz"></select>
+                        <input id="toTz" list="tzOptions" placeholder="Type country or timezone">
                     </div>
                 </div>
 
@@ -637,7 +702,7 @@
             <h2>Current Time by Timezone</h2>
             <div class="form-group">
                 <label>Select Timezone:</label>
-                <select id="currentTz"></select>
+                <input id="currentTz" list="tzOptions" placeholder="Type country or timezone">
             </div>
             <div id="currentTimeDisplay"></div>
         </div>
@@ -647,9 +712,7 @@
             <h2>Compare Timezones</h2>
             <div class="timezone-selector">
                 <div class="select-group">
-                    <select id="addTz">
-                        <option value="">Select a timezone to add</option>
-                    </select>
+                    <input id="addTz" list="tzOptions" placeholder="Type country or timezone">
                     <button type="button" class="convert-btn" style="width: auto;" onclick="addTimezone()">Add</button>
                 </div>
                 <div class="selected-timezones" id="selectedTzs"></div>
@@ -758,8 +821,24 @@
         </div>
     </footer>
 
+    <div id="tzChooser" class="tz-chooser" aria-live="polite">
+        <div class="tz-chooser-title" id="tzChooserTitle">Select a timezone</div>
+        <select id="tzChooserSelect"></select>
+        <div class="tz-chooser-actions">
+            <button type="button" class="tz-chooser-primary" id="tzChooserUse">Use timezone</button>
+            <button type="button" class="tz-chooser-secondary" id="tzChooserCancel">Cancel</button>
+        </div>
+        <div class="tz-chooser-hint">Some countries have multiple timezones. Pick one to continue.</div>
+    </div>
+
+    <datalist id="tzOptions"></datalist>
+
     <script>
         let allTimezones = [];
+        let countryData = [];
+        let countryLookup = new Map();
+        let tzToCountryName = new Map();
+        let activeChooserInputId = null;
         let selectedTimezones = ['America/New_York', 'Europe/London', 'Asia/Cairo', 'Australia/Sydney'];
 
         // Set current datetime when DOM is ready
@@ -770,23 +849,164 @@
             }
         });
 
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function buildCountryMaps(countries) {
+            countryData = Array.isArray(countries) ? countries : [];
+            countryLookup = new Map();
+            tzToCountryName = new Map();
+
+            countryData.forEach(item => {
+                const name = item.name;
+                const timezones = Array.isArray(item.timezones) ? item.timezones : [];
+                if (name) {
+                    countryLookup.set(name.toLowerCase(), timezones);
+                }
+                timezones.forEach(tz => {
+                    if (!tzToCountryName.has(tz)) {
+                        tzToCountryName.set(tz, name);
+                    }
+                });
+            });
+        }
+
+        function formatTimezoneLabel(tz) {
+            const country = tzToCountryName.get(tz);
+            return country ? `${country} - ${tz}` : tz;
+        }
+
+        function showTimezoneChooser(countryName, timezones, inputId) {
+            const chooser = document.getElementById('tzChooser');
+            const title = document.getElementById('tzChooserTitle');
+            const select = document.getElementById('tzChooserSelect');
+            const useBtn = document.getElementById('tzChooserUse');
+            const cancelBtn = document.getElementById('tzChooserCancel');
+
+            if (!chooser || !title || !select || !useBtn || !cancelBtn) return;
+            if (activeChooserInputId === inputId) return;
+
+            activeChooserInputId = inputId;
+            title.textContent = `Select timezone for ${countryName}`;
+            select.innerHTML = timezones
+                .map(tz => `<option value="${escapeHtml(tz)}">${escapeHtml(tz)}</option>`)
+                .join('');
+
+            useBtn.onclick = () => {
+                const selected = select.value;
+                if (selected) {
+                    setInputValue(inputId, selected);
+                }
+                hideTimezoneChooser();
+            };
+
+            cancelBtn.onclick = () => {
+                hideTimezoneChooser();
+            };
+
+            chooser.classList.add('active');
+        }
+
+        function hideTimezoneChooser() {
+            const chooser = document.getElementById('tzChooser');
+            if (chooser) {
+                chooser.classList.remove('active');
+            }
+            activeChooserInputId = null;
+        }
+
+        function resolveTimezoneForInput(inputId, options = {}) {
+            const { allowPrompt = true } = options;
+            const input = document.getElementById(inputId);
+            if (!input) return { tz: '', error: 'Missing input' };
+
+            const raw = input.value.trim();
+            if (!raw) return { tz: '', error: 'Empty' };
+            if (allTimezones.includes(raw)) return { tz: raw };
+
+            const splitIndex = raw.indexOf(' - ');
+            if (splitIndex !== -1) {
+                const candidate = raw.slice(splitIndex + 3).trim();
+                if (allTimezones.includes(candidate)) return { tz: candidate };
+            }
+
+            const countryMatch = countryLookup.get(raw.toLowerCase());
+            if (countryMatch && countryMatch.length === 1) {
+                return { tz: countryMatch[0] };
+            }
+
+            if (countryMatch && countryMatch.length > 1) {
+                if (allowPrompt) {
+                    showTimezoneChooser(raw, countryMatch, inputId);
+                }
+                return { tz: '', needsChoice: true };
+            }
+
+            return { tz: '', error: 'Unknown timezone or country' };
+        }
+
+        function populateSearchOptions() {
+            const datalist = document.getElementById('tzOptions');
+            if (!datalist) return;
+
+            const optionSet = new Set();
+            allTimezones.forEach(tz => optionSet.add(tz));
+            countryData.forEach(item => {
+                const name = item.name;
+                const timezones = Array.isArray(item.timezones) ? item.timezones : [];
+                if (name) {
+                    optionSet.add(name);
+                }
+                timezones.forEach(tz => optionSet.add(`${name} - ${tz}`));
+            });
+
+            const options = Array.from(optionSet).sort();
+            datalist.innerHTML = options.map(option => `<option value="${escapeHtml(option)}"></option>`).join('');
+        }
+
+        function setInputValue(inputId, tz) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            input.value = formatTimezoneLabel(tz);
+        }
+
         // Load timezones on startup
         async function loadTimezones() {
             try {
                 console.log('Starting loadTimezones...');
-                const response = await fetch('/api/timezones');
-                console.log('API Response status:', response.status);
-                
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.status}`);
+                const [tzResponse, countriesResponse] = await Promise.all([
+                    fetch('/api/timezones'),
+                    fetch('/api/countries')
+                ]);
+
+                console.log('API Response status:', tzResponse.status);
+
+                if (!tzResponse.ok) {
+                    throw new Error(`API error: ${tzResponse.status}`);
                 }
-                
-                const data = await response.json();
-                console.log('Received timezones count:', data.count);
-                
-                allTimezones = data.timezones;
-                console.log('Timezones loaded, populating selects...');
-                
+
+                const tzData = await tzResponse.json();
+                console.log('Received timezones count:', tzData.count);
+
+                allTimezones = tzData.timezones || [];
+
+                let countries = [];
+                if (countriesResponse.ok) {
+                    const countriesData = await countriesResponse.json();
+                    countries = countriesData.countries || [];
+                } else {
+                    console.warn('Countries API unavailable, falling back to timezone list only');
+                }
+
+                buildCountryMaps(countries);
+                console.log('Timezones loaded, populating inputs...');
+
                 populateSelects();
                 updateSelectedTzs();
                 startCurrentTimeUpdate();
@@ -804,22 +1024,19 @@
             const currentTz = document.getElementById('currentTz');
             const addTz = document.getElementById('addTz');
 
-            console.log('Populating selects with', allTimezones.length, 'timezones');
+            console.log('Populating inputs with', allTimezones.length, 'timezones');
 
             if (!fromTz || !toTz || !currentTz || !addTz) {
-                console.error('Missing select elements:', { fromTz, toTz, currentTz, addTz });
+                console.error('Missing timezone input elements:', { fromTz, toTz, currentTz, addTz });
                 return;
             }
 
-            [fromTz, toTz, currentTz, addTz].forEach(select => {
-                select.innerHTML = allTimezones.map(tz => `<option value="${tz}">${tz}</option>`).join('');
-            });
-
-            fromTz.value = 'America/New_York';
-            toTz.value = 'Asia/Cairo';
-            currentTz.value = 'Asia/Cairo';
+            populateSearchOptions();
+            setInputValue('fromTz', 'America/New_York');
+            setInputValue('toTz', 'Asia/Cairo');
+            setInputValue('currentTz', 'Asia/Cairo');
             
-            console.log('Selects populated successfully');
+            console.log('Inputs populated successfully');
         }
 
         function switchTab(tab) {
@@ -832,14 +1049,22 @@
         async function handleConvert(e) {
             e.preventDefault();
             const datetime = document.getElementById('datetime').value;
-            const fromTz = document.getElementById('fromTz').value;
-            const toTz = document.getElementById('toTz').value;
+            const fromResult = resolveTimezoneForInput('fromTz');
+            const toResult = resolveTimezoneForInput('toTz');
 
             try {
+                if (fromResult.needsChoice || toResult.needsChoice) {
+                    throw new Error('Select a timezone for the chosen country in the picker.');
+                }
+                if (!fromResult.tz || !toResult.tz) {
+                    throw new Error('Please select a valid timezone or country from the list.');
+                }
+                setInputValue('fromTz', fromResult.tz);
+                setInputValue('toTz', toResult.tz);
                 const response = await fetch('/api/convert', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ datetime, from_tz: fromTz, to_tz: toTz })
+                    body: JSON.stringify({ datetime, from_tz: fromResult.tz, to_tz: toResult.tz })
                 });
 
                 const data = await response.json();
@@ -865,14 +1090,14 @@
                     <div class="result">
                         <div class="result-box original">
                             <h3>Original Time</h3>
-                            <p class="timezone">${data.original.timezone}</p>
+                            <p class="timezone">${escapeHtml(formatTimezoneLabel(data.original.timezone))}</p>
                             <p class="datetime">${formatISODateTime(data.original.datetime)}</p>
                             <p class="offset">${data.original.offset}</p>
                         </div>
                         <div class="arrow">→</div>
                         <div class="result-box converted">
                             <h3>Converted Time</h3>
-                            <p class="timezone">${data.converted.timezone}</p>
+                            <p class="timezone">${escapeHtml(formatTimezoneLabel(data.converted.timezone))}</p>
                             <p class="datetime">${formatISODateTime(data.converted.datetime)}</p>
                             <p class="offset">${data.converted.offset}</p>
                         </div>
@@ -893,19 +1118,28 @@
         }
 
         async function updateCurrentTime() {
-            const tz = document.getElementById('currentTz').value;
+            const result = resolveTimezoneForInput('currentTz', { allowPrompt: false });
+            if (result.needsChoice) {
+                document.getElementById('currentTimeDisplay').innerHTML = `<div class="error">Select a timezone for that country.</div>`;
+                return;
+            }
+            if (!result.tz) {
+                document.getElementById('currentTimeDisplay').innerHTML = `<div class="error">Please select a valid timezone or country.</div>`;
+                return;
+            }
+            setInputValue('currentTz', result.tz);
             try {
                 const response = await fetch('/api/current', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ timezone: tz })
+                    body: JSON.stringify({ timezone: result.tz })
                 });
 
                 const data = await response.json();
                 document.getElementById('currentTimeDisplay').innerHTML = `
                     <div class="current-time-display">
                         <div class="time-box">
-                            <p class="timezone">${data.timezone}</p>
+                            <p class="timezone">${escapeHtml(formatTimezoneLabel(data.timezone))}</p>
                             <p class="time">${data.formatted}</p>
                             <p class="offset">${data.offset}</p>
                         </div>
@@ -918,16 +1152,33 @@
 
         function startCurrentTimeUpdate() {
             updateCurrentTime();
-            document.getElementById('currentTz').addEventListener('change', updateCurrentTime);
+            const currentInput = document.getElementById('currentTz');
+            if (currentInput) {
+                currentInput.addEventListener('input', updateCurrentTime);
+                currentInput.addEventListener('change', () => {
+                    resolveTimezoneForInput('currentTz');
+                    updateCurrentTime();
+                });
+            }
             setInterval(updateCurrentTime, 1000);
         }
 
         function addTimezone() {
-            const tz = document.getElementById('addTz').value;
-            if (tz && !selectedTimezones.includes(tz)) {
-                selectedTimezones.push(tz);
+            const input = document.getElementById('addTz');
+            const result = resolveTimezoneForInput('addTz');
+            if (result.needsChoice) {
+                alert('Select a timezone for the chosen country in the picker.');
+                return;
+            }
+            if (!result.tz) {
+                alert('Please select a valid timezone or country from the list.');
+                return;
+            }
+            if (!selectedTimezones.includes(result.tz)) {
+                selectedTimezones.push(result.tz);
                 updateSelectedTzs();
             }
+            input.value = '';
         }
 
         function removeTimezone(tz) {
@@ -939,7 +1190,7 @@
             document.getElementById('selectedTzs').innerHTML = selectedTimezones
                 .map(tz => `
                     <div class="timezone-tag">
-                        ${tz}
+                        ${escapeHtml(formatTimezoneLabel(tz))}
                         <button type="button" onclick="removeTimezone('${tz}')">×</button>
                     </div>
                 `)
@@ -965,7 +1216,7 @@
                     <div class="comparison-grid">
                         ${data.comparison.map(item => `
                             <div class="comparison-card">
-                                <h3>${item.timezone}</h3>
+                                <h3>${escapeHtml(formatTimezoneLabel(item.timezone))}</h3>
                                 <p class="datetime">${item.formatted}</p>
                                 <p class="offset">${item.offset}</p>
                             </div>

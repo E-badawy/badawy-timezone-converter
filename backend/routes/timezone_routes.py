@@ -13,6 +13,25 @@ def get_all_timezones():
         'count': len(timezones)
     })
 
+@timezone_bp.route('/countries', methods=['GET'])
+def get_countries():
+    """Get countries with their available timezones"""
+    countries = []
+    for code, name in pytz.country_names.items():
+        timezones = pytz.country_timezones.get(code, [])
+        if timezones:
+            countries.append({
+                'code': code,
+                'name': name,
+                'timezones': timezones
+            })
+
+    countries.sort(key=lambda item: item['name'])
+    return jsonify({
+        'countries': countries,
+        'count': len(countries)
+    })
+
 @timezone_bp.route('/convert', methods=['POST'])
 def convert_timezone():
     """Convert time from one timezone to another"""
